@@ -115,9 +115,15 @@ const CipherResults: React.FC<CipherResultsProps> = ({
                     getConfidenceColor(result.confidence)
                   }`}>
                     {formatConfidence(result.confidence)}
+                    {result.llmScore && (
+                      <span className="ml-1 text-xs">
+                        🤖 {formatConfidence(result.llmScore)}
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
                     Score: {result.ngramScore.toFixed(2)}
+                    {result.llmScore && ` | AI: ${result.llmScore.toFixed(2)}`}
                   </div>
                 </div>
               </div>
@@ -129,6 +135,15 @@ const CipherResults: React.FC<CipherResultsProps> = ({
                     {formatKey(result)}
                   </div>
                 </div>
+
+                {result.llmReasoning && (
+                  <div>
+                    <span className="text-sm font-medium text-gray-700">🤖 AI Analysis:</span>
+                    <div className="mt-1 bg-blue-50 p-3 rounded border text-sm italic text-gray-700">
+                      {result.llmReasoning}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <span className="text-sm font-medium text-gray-700">Decrypted Text:</span>

@@ -1,11 +1,85 @@
-# CLAUDE.md — Project Operating Manual for **CipherCrack**
+# CLAUDE.md
 
-> **Purpose**: Equip Claude Code to build and iterate on **CipherCrack**, a production‑quality demo app that turns **scanned historical cipher documents** into **decrypted plaintext** with award‑level **UI/UX**, transparent cryptanalysis, and explainable **RAG-assisted** analysis.  
-> **Judging goals**: 🏆 Best UI/UX · 🧠 Most Advanced Coding · ✨ Most Creative
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Quick Development Commands
+
+```bash
+# RECOMMENDED: Run everything on single port (backend serves frontend)
+npm run dev:single  # http://localhost:8080
+
+# Alternative: Run frontend and backend separately (development only)
+npm run dev         # Frontend: http://localhost:5173, Backend: http://localhost:8080
+
+# Production build and start (single port)
+npm run start       # http://localhost:8080
+
+# Build for production
+npm run build
+
+# Lint frontend code
+cd frontend && npm run lint
+
+# Install all dependencies
+npm run install:all
+```
+
+**For demos and production, use `npm run dev:single` or `npm run start` to serve everything from port 8080.**
+
+## Project Overview
+
+**CipherCrack** is an AI-powered document analysis and cipher breaking tool that turns scanned historical cipher documents into decrypted plaintext. The application features:
+
+- **Frontend**: React + Vite + TypeScript + Tailwind CSS
+- **Backend**: Express + TypeScript + Google Vision API + Supabase + OpenAI
+- **Architecture**: Monorepo with workspaces, Web Workers for crypto processing
+- **Database**: Supabase (Postgres + Storage)
+- **AI Integration**: OpenAI GPT-4o-mini for intelligent ranking of decryption results
+
+**Judging goals**: 🏆 Best UI/UX · 🧠 Most Advanced Coding · ✨ Most Creative
+
+## Environment Setup
+
+Required environment variables:
+
+**Frontend (.env):**
+```
+VITE_SUPABASE_URL=https://grwktwsicmiqssemvcah.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key_here
+```
+
+**Backend (.env):**
+```
+PORT=8080
+SUPABASE_URL=https://grwktwsicmiqssemvcah.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+GOOGLE_VISION_API_KEY=your_google_vision_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+## Code Architecture
+
+**Frontend Structure:**
+- `/src/components/` - React components (UploadDropzone, CipherResults)
+- `/src/lib/` - Utilities (crypto.ts for cipher algorithms, supabase.ts)
+- `/src/workers/` - Web Workers (cryptoWorker.ts for background crypto processing)
+- Main app flow: Upload → OCR via Google Vision → Crypto analysis → LLM ranking → Results display
+
+**Backend Structure:**
+- `/src/server.ts` - Express server with Vision API + OpenAI integration
+- `/src/supabase.ts` - Supabase client configuration
+- Key routes: `/api/vision` for OCR, `/api/rank-decryptions` for LLM ranking, `/api/health` for health checks
+
+**Key Patterns:**
+- Web Workers handle heavy crypto computations to keep UI responsive
+- TypeScript interfaces define data structures (CipherResult, DetectionResult)
+- Progress tracking through state management for long-running operations
+- LLM integration provides intelligent ranking of decryption candidates
+- Fallback scoring ensures functionality without OpenAI API key
 
 ---
 
-## 0) Ground Rules for Claude Code
+## Development Guidelines for Claude Code
 
 - **You are coding inside a real repo.** Prefer incremental, working commits over huge rewrites.
 - **Always show a plan first** (bullet list of changes & files). Then implement in small PR-sized chunks.

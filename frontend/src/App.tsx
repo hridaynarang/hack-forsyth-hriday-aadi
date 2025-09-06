@@ -2,10 +2,6 @@ import { useState } from 'react'
 import UploadDropzone from './components/UploadDropzone'
 import CipherResults from './components/CipherResults'
 import { CipherResult, DetectionResult } from './lib/crypto'
-import * as pdfjsLib from 'pdfjs-dist'
-
-// Set up PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
 
 interface ProcessingState {
   phase: 'idle' | 'ocr' | 'crypto';
@@ -24,63 +20,34 @@ function App() {
   const [detection, setDetection] = useState<DetectionResult | undefined>();
   const [results, setResults] = useState<CipherResult[]>([]);
   
-  // Convert PDF to image
-  const convertPDFToImage = async (file: File): Promise<Blob> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const page = await pdf.getPage(1); // Get first page
-    
-    const viewport = page.getViewport({ scale: 2.0 });
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d')!;
-    
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
-    
-    await page.render({
-      canvasContext: ctx,
-      viewport: viewport,
-      canvas: canvas
-    }).promise;
-    
-    return new Promise((resolve) => {
-      canvas.toBlob((blob) => {
-        resolve(blob!);
-      }, 'image/png');
-    });
-  };
+  // Extract text using Google Vision API
+  const extractTextFromFile = async (file: File): Promise<{ text: string; confidence: number }> => {
+    const formData = new FormData();
+    formData.append('file', file);
 
-  // Preprocess image for better OCR results
-  const preprocessImage = (canvas: HTMLCanvasElement): HTMLCanvasElement => {
-    const ctx = canvas.getContext('2d')!;
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    
-    // Convert to grayscale and apply threshold
-    for (let i = 0; i < data.length; i += 4) {
-      // Grayscale conversion
-      const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-      
-      // Apply threshold for better text recognition
-      const threshold = 128;
-      const binaryValue = gray > threshold ? 255 : 0;
-      
-      data[i] = binaryValue;     // Red
-      data[i + 1] = binaryValue; // Green
-      data[i + 2] = binaryValue; // Blue
-      // Alpha channel (i + 3) stays the same
+    const response = await fetch('/api/vision', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to extract text');
     }
-    
-    ctx.putImageData(imageData, 0, 0);
-    return canvas;
+
+    const result = await response.json();
+    return {
+      text: result.text || '',
+      confidence: result.confidence || 0
+    };
   };
 
   const handleFilesSelected = async (files: File[]) => {
     const file = files[0]; // Process first file only for now
     console.log('File selected:', file?.name, file?.type, file?.size);
     
-    if (!file || !(file.type.startsWith('image/') || file.type === 'application/pdf')) {
-      alert('Please select an image file (PNG, JPG) or PDF');
+    if (!file || !file.type.startsWith('image/')) {
+      alert('Please select an image file (PNG, JPG, GIF, etc.)');
       return;
     }
 
@@ -91,134 +58,35 @@ function App() {
     setResults([]);
 
     try {
-      let imageBlob: Blob;
-
-      if (file.type === 'application/pdf') {
-        // Handle PDF files
-        setProcessing({
-          phase: 'ocr',
-          progress: 10,
-          message: 'Converting PDF to image...'
-        });
-        
-        console.log('Converting PDF to image...');
-        imageBlob = await convertPDFToImage(file);
-        console.log('PDF converted to image blob');
-      } else {
-        // Handle image files
-        setProcessing({
-          phase: 'ocr',
-          progress: 10,
-          message: 'Loading image...'
-        });
-
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d')!;
-        const img = new Image();
-        const imageUrl = URL.createObjectURL(file);
-        console.log('Image URL created:', imageUrl);
-
-        imageBlob = await new Promise<Blob>((resolve, reject) => {
-          img.onload = async () => {
-            try {
-              console.log('Image loaded successfully:', img.width, 'x', img.height);
-              canvas.width = img.width;
-              canvas.height = img.height;
-              ctx.drawImage(img, 0, 0);
-              
-              // Preprocess for better OCR
-              const preprocessedCanvas = preprocessImage(canvas);
-              
-              // Convert canvas to blob
-              preprocessedCanvas.toBlob((blob) => {
-                if (!blob) {
-                  reject(new Error('Failed to preprocess image'));
-                  return;
-                }
-                resolve(blob);
-              }, 'image/png');
-              
-              // Clean up
-              URL.revokeObjectURL(imageUrl);
-            } catch (error) {
-              reject(error);
-            }
-          };
-
-          img.onerror = () => {
-            URL.revokeObjectURL(imageUrl);
-            reject(new Error('Failed to load image'));
-          };
-
-          img.src = imageUrl;
-        });
-      }
-
-      // Step 2: OCR Processing with processed image
+      // Step 1: Extract text using Google Vision API
       setProcessing({
         phase: 'ocr',
         progress: 20,
-        message: 'Starting OCR...'
+        message: 'Extracting text with Google Vision...'
       });
 
-      const ocrWorker = new Worker(
-        new URL('./workers/ocrWorker.ts', import.meta.url),
-        { type: 'module' }
-      );
+      console.log('Calling Google Vision API...');
+      const { text, confidence } = await extractTextFromFile(file);
+      
+      console.log('Vision API completed. Text length:', text?.length, 'Confidence:', confidence);
+      setOcrText(text || '');
+      setOcrConfidence(confidence || 0);
+      
+      // Persist OCR results
+      await persistOCRResults(file.name, text, confidence);
 
-      ocrWorker.postMessage({ type: 'OCR', imageBlob });
-
-      ocrWorker.onmessage = async (event) => {
-        const { status, progress, text, confidence, message, error } = event.data;
-        console.log('OCR Worker Message:', { status, progress, text: text?.substring(0, 50), confidence, message, error });
-
-        if (status === 'processing') {
-          setProcessing({
-            phase: 'ocr',
-            progress,
-            message: message || 'Processing OCR...'
-          });
-        } else if (status === 'completed') {
-          console.log('OCR Completed. Text length:', text?.length, 'Confidence:', confidence);
-          setOcrText(text || '');
-          setOcrConfidence(confidence || 0);
-          
-          // Persist OCR results
-          await persistOCRResults(file.name, text, confidence);
-          
-          ocrWorker.terminate();
-
-          // Step 3: Crypto Analysis
-          if (text && text.trim()) {
-            console.log('Starting crypto analysis with text:', text.trim().substring(0, 100));
-            startCryptoAnalysis(text.trim());
-          } else {
-            console.log('No text detected, stopping process');
-            setProcessing({
-              phase: 'idle',
-              progress: 100,
-              message: 'No text detected in image'
-            });
-          }
-        } else if (status === 'error') {
-          console.error('OCR Error:', error);
-          setProcessing({
-            phase: 'idle',
-            progress: 0,
-            message: `OCR failed: ${error}`
-          });
-          ocrWorker.terminate();
-        }
-      };
-
-      ocrWorker.onerror = (error) => {
-        console.error('OCR Worker Error:', error);
+      // Step 2: Crypto Analysis
+      if (text && text.trim()) {
+        console.log('Starting crypto analysis with text:', text.trim().substring(0, 100));
+        startCryptoAnalysis(text.trim());
+      } else {
+        console.log('No text detected, stopping process');
         setProcessing({
           phase: 'idle',
-          progress: 0,
-          message: 'OCR worker failed to start'
+          progress: 100,
+          message: 'No text detected in image'
         });
-      };
+      }
 
     } catch (error) {
       console.error('Processing error:', error);
@@ -359,7 +227,7 @@ function App() {
                   Upload Cipher Documents
                 </h2>
                 <p className="text-gray-600 text-sm">
-                  Upload images containing ciphertext for automatic OCR and cryptographic analysis
+                  Upload images containing ciphertext for Google Vision OCR and cryptographic analysis
                 </p>
               </div>
               
